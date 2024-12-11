@@ -34,6 +34,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     let fullJumpImpulse: CGFloat = 200
     let fastFallSpeed: CGFloat = -500
     
+    var usingController: Bool = false
+    var onScreenButtonsVisible: Bool = false
+    var showButtons = true // Default to showing buttons
+    var analogStickBase: SKSpriteNode!
+    var analogStickThumb: SKSpriteNode!
+    var isTouchingAnalogStick = false
+    
+    
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .resizeFill
@@ -46,6 +54,85 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         createPlayer()
         createEnemy()
         setupControllerSupport()
+        createOnScreenButtons()
+        showOnScreenButtons()
+        createAnalogStick()
+        
+        
+        // Check for game controllers
+        NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(controllerConnected),
+                name: .GCControllerDidConnect,
+                object: nil
+            )
+        NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(controllerDisconnected),
+                name: .GCControllerDidDisconnect,
+                object: nil
+            )
+        
+        if !GCController.controllers().isEmpty {
+                controllerConnected()
+            }
+
+           // Add touch gesture detection
+           let tapGesture = UITapGestureRecognizer(target: self, action: #selector(screenTouched))
+           view.addGestureRecognizer(tapGesture)
+       }
+
+       @objc func controllerConnected() {
+           usingController = true
+           print("Controller connected")
+           hideOnScreenButtons()
+           
+       }
+
+       @objc func controllerDisconnected() {
+           usingController = false
+           print("Controller disconnected")
+           showOnScreenButtons()
+       }
+
+       @objc func screenTouched() {
+           print("Screen touched")
+           if !usingController {
+               usingController = false
+               showOnScreenButtons()
+           }
+    }
+    
+    func createAnalogStick() {
+        // Create the base
+        analogStickBase = SKSpriteNode(color: .gray, size: CGSize(width: 100, height: 100))
+        analogStickBase.name = "analogStickBase"
+        analogStickBase.position = CGPoint(x: -size.width / 2 + 120, y: -size.height / 2 + 120) // Bottom-left corner
+        analogStickBase.zPosition = 10
+        analogStickBase.alpha = 0.5
+        addChild(analogStickBase)
+
+        // Create the thumbstick
+        analogStickThumb = SKSpriteNode(color: .blue, size: CGSize(width: 50, height: 50))
+        analogStickThumb.name = "analogStickThumb"
+        analogStickThumb.position = analogStickBase.position // Start at the center of the base
+        analogStickThumb.zPosition = 11
+        analogStickThumb.alpha = 0.7
+        addChild(analogStickThumb)
+    }
+    
+    func createOnScreenButtons() {
+        let jumpButton = SKSpriteNode(color: .blue, size: CGSize(width: 60, height: 60))
+        jumpButton.name = "jumpButton"
+        jumpButton.position = CGPoint(x: size.width / 2 - 80, y: -size.height / 2 + 80) // Adjust as needed
+        jumpButton.isHidden = true
+        addChild(jumpButton)
+
+        let attackButton = SKSpriteNode(color: .red, size: CGSize(width: 60, height: 60))
+        attackButton.name = "attackButton"
+        attackButton.position = CGPoint(x: size.width / 2 - 160, y: -size.height / 2 + 80) // Adjust as needed
+        attackButton.isHidden = true
+        addChild(attackButton)
     }
     
     func createPlatforms() {
@@ -88,25 +175,82 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         addChild(rightEdge)
     }
     
+    
+    func showOnScreenButtons() {
+        onScreenButtonsVisible = true
+        for child in children {
+            if let button = child as? SKSpriteNode, button.name?.contains("Button") == true {
+                button.isHidden = false
+            }
+        }
+    }
+
+    func hideOnScreenButtons() {
+        onScreenButtonsVisible = false
+        for child in children {
+            if let button = child as? SKSpriteNode, button.name?.contains("Button") == true {
+                button.isHidden = true
+            }
+        }
+    }
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard onScreenButtonsVisible else { return }
+        for touch in touches {
+            let location = touch.location(in: self)
+            let touchedNode = atPoint(location)
+
+            if touchedNode.name == "jumpButton" {
+                performJump()
+            } else if touchedNode.name == "attackButton" {
+                performAttack()
+            }
+        
+            // Check if the touch is on the analog stick
+            if analogStickBase.contains(location) {
+                        isTouchingAnalogStick = true
+                    }
+            // Add more button interactions here
+        }
+    }
+    
+    func performJump() {
+        player.physicsBody?.applyImpulse(CGVector(dx: 0, dy: 150)) // Example jump logic
+    }
+
+    func performAttack() {
+        // Example attack logic
+        print("Attack performed!")
+    }
+    
+    func toggleOnScreenButtons() {
+        showButtons.toggle()
+        if showButtons {
+            showOnScreenButtons()
+        } else {
+            hideOnScreenButtons()
+        }
+    }
+    
     func createPlayer() {
-        // Replace the rectangle with a texture-based sprite
-        let playerTexture = SKTexture(imageNamed: "CharacterSprite") // Replace "CharacterSprite" with your image name
+        let playerTexture = SKTexture(imageNamed: "CharacterSprite")
         player = SKSpriteNode(texture: playerTexture)
-        player.size = CGSize(width: 80, height: 80) // Adjust to fit your sprite's design
+        player.size = CGSize(width: 50, height: 50)
+        player.position = CGPoint(x: 0, y: 0)
         player.name = "player"
-        player.position = CGPoint(x: 0, y: 0) // Starting position
 
-        player.physicsBody = SKPhysicsBody(rectangleOf: player.size) // Use rectangle physics
-        player.physicsBody?.allowsRotation = false // Prevent spinning
+        // Add a physics body
+        player.physicsBody = SKPhysicsBody(rectangleOf: player.size)
+        player.physicsBody?.allowsRotation = false
+        player.physicsBody?.affectedByGravity = true // Gravity should be enabled
+        player.physicsBody?.friction = 0 // Reduce friction for smooth movement
+        player.physicsBody?.linearDamping = 0 // No damping for continuous movement
+        player.physicsBody?.categoryBitMask = PhysicsCategory.player
+        player.physicsBody?.collisionBitMask = PhysicsCategory.platform
+        player.physicsBody?.contactTestBitMask = PhysicsCategory.platform
 
-        // Assign physics bitmasks
-        player.physicsBody?.categoryBitMask = PhysicsCategory.player // Define what this object is (player)
-        player.physicsBody?.contactTestBitMask = PhysicsCategory.platform | PhysicsCategory.edge // Detect collisions with platforms or edges
-        player.physicsBody?.collisionBitMask = PhysicsCategory.platform // Define objects the player can collide with
-
-           // Add the player to the scene
-           addChild(player)
-       }
+        addChild(player)
+    }
     
     func createEnemy() {
         enemy = SKSpriteNode(color: .red, size: CGSize(width: 40, height: 40))
@@ -415,4 +559,45 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         character.physicsBody?.velocity = .zero
         character.physicsBody?.angularVelocity = 0
     }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isTouchingAnalogStick else { return }
+
+        for touch in touches {
+            let location = touch.location(in: self)
+            let offset = CGVector(dx: location.x - analogStickBase.position.x,
+                                  dy: location.y - analogStickBase.position.y)
+            let distance = sqrt(offset.dx * offset.dx + offset.dy * offset.dy)
+            let radius: CGFloat = analogStickBase.size.width / 2
+
+            if distance <= radius {
+                analogStickThumb.position = location
+            } else {
+                let clampedX = offset.dx / distance * radius
+                let clampedY = offset.dy / distance * radius
+                analogStickThumb.position = CGPoint(x: analogStickBase.position.x + clampedX,
+                                                    y: analogStickBase.position.y + clampedY)
+            }
+
+            let normalizedVector = CGVector(dx: offset.dx / radius, dy: offset.dy / radius)
+            handleAnalogStickMovement(vector: normalizedVector)
+        }
+    }
+
+    func handleAnalogStickMovement(vector: CGVector) {
+        print("Analog stick vector: \(vector)")
+        let movementSpeed: CGFloat = 200
+        player.physicsBody?.velocity = CGVector(dx: vector.dx * movementSpeed,
+                                                dy: player.physicsBody?.velocity.dy ?? 0)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isTouchingAnalogStick else { return }
+
+        let moveToCenter = SKAction.move(to: analogStickBase.position, duration: 0.1)
+        analogStickThumb.run(moveToCenter)
+        isTouchingAnalogStick = false
+        handleAnalogStickMovement(vector: CGVector(dx: 0, dy: 0))
+    }
+    
 }
